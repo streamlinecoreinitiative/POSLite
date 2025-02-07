@@ -40,7 +40,7 @@ def save_product(name, quantity, price):
 def fetch_inventory():
     connection = sqlite3.connect("pos_lite.db")
     cursor = connection.cursor()
-    cursor.execute("SELECT * FROM inventory")
+cursor.execute("SELECT * FROM inventory")
     items = cursor.fetchall()
     connection.close()
     return items
