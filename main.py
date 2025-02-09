@@ -2,6 +2,8 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import sqlite3
 from datetime import datetime
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 # Initialize Database
 def initialize_db():
@@ -40,7 +42,7 @@ def save_product(name, quantity, price):
 def fetch_inventory():
     connection = sqlite3.connect("pos_lite.db")
     cursor = connection.cursor()
-cursor.execute("SELECT * FROM inventory")
+    cursor.execute("SELECT * FROM inventory")
     items = cursor.fetchall()
     connection.close()
     return items
@@ -102,7 +104,6 @@ def fetch_sales_report(start_date, end_date):
 def fetch_recent_sales(limit=10):
     connection = sqlite3.connect("pos_lite.db")
     cursor = connection.cursor()
-    # Join with inventory to get the product name
     cursor.execute("""
         SELECT 
             s.id, 
@@ -233,6 +234,12 @@ class POSApp:
         self.report_tree.heading("Date", text="Date")
         self.report_tree.grid(row=3, column=0, columnspan=2, pady=5)
 
+        # New buttons for charts
+        self.sales_chart_button = ttk.Button(self.report_tab, text="Show Sales Chart", command=self.show_sales_chart)
+        self.sales_chart_button.grid(row=4, column=0, columnspan=2, pady=5)
+        self.inventory_chart_button = ttk.Button(self.report_tab, text="Show Inventory Chart", command=self.show_inventory_chart)
+        self.inventory_chart_button.grid(row=5, column=0, columnspan=2, pady=5)
+
     # Auto-populate inventory fields on selection
     def on_tree_select(self, event):
         selected = self.inventory_tree.selection()
@@ -305,14 +312,14 @@ class POSApp:
             quantity = int(self.sale_quantity_entry.get())
             inventory = fetch_inventory()
             for item in inventory:
-                if item[0] == product_id:
-                    if item[2] >= quantity:
-                        total = quantity * item[3]
-                        save_sale(product_id, quantity, total)
-                        new_quantity = item[2] - quantity
+                if item[0] == product_id:  # Match product by ID
+                    if item[2] >= quantity:  # Check inventory quantity
+                        total = quantity * item[3]  # Calculate total price
+                        save_sale(product_id, quantity, total)  # Save the sale
+                        new_quantity = item[2] - quantity  # Update inventory
                         update_inventory_product(product_id, item[1], new_quantity, item[3])
                         messagebox.showinfo("Success", f"Sale completed! Total: ${total}")
-                        self.load_inventory()
+                        self.load_inventory()  # Refresh inventory
                         self.load_sales()  # Refresh sales table after sale
                         return
                     else:
@@ -333,6 +340,63 @@ class POSApp:
                 self.report_tree.insert("", tk.END, values=sale)
         except Exception as e:
             messagebox.showerror("Error", f"Failed to generate report: {e}")
+
+    def show_sales_chart(self):
+        # Get start and end dates from entries
+        start_date = self.start_date_entry.get()
+        end_date = self.end_date_entry.get()
+        if not start_date or not end_date:
+            messagebox.showerror("Input Error", "Please enter start and end dates for the chart.")
+            return
+        sales = fetch_sales_report(start_date, end_date)
+        if not sales:
+            messagebox.showinfo("No Data", "No sales data found for this period.")
+            return
+        # Aggregate sales totals by date (extract date part from sale_date)
+        sales_by_date = {}
+        for sale in sales:
+            date = sale[4][:10]  # first 10 characters (YYYY-MM-DD)
+            total = sale[3]
+            sales_by_date[date] = sales_by_date.get(date, 0) + total
+        dates = sorted(sales_by_date.keys())
+        totals = [sales_by_date[d] for d in dates]
+        # Create chart in a new window
+        chart_window = tk.Toplevel(self.root)
+        chart_window.title("Sales Chart")
+        fig = plt.Figure(figsize=(8,4))
+        ax = fig.add_subplot(111)
+        ax.bar(dates, totals, color="blue")
+        ax.set_xlabel("Date")
+        ax.set_ylabel("Total Sales ($)")
+        ax.set_title("Sales Over Time")
+        for label in ax.get_xticklabels():
+            label.set_rotation(45)
+        fig.tight_layout()
+        canvas = FigureCanvasTkAgg(fig, master=chart_window)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+    def show_inventory_chart(self):
+        inventory = fetch_inventory()
+        if not inventory:
+            messagebox.showinfo("No Data", "No inventory data found.")
+            return
+        product_names = [item[1] for item in inventory]
+        quantities = [item[2] for item in inventory]
+        chart_window = tk.Toplevel(self.root)
+        chart_window.title("Inventory Chart")
+        fig = plt.Figure(figsize=(8,4))
+        ax = fig.add_subplot(111)
+        ax.bar(product_names, quantities, color="green")
+        ax.set_xlabel("Product")
+        ax.set_ylabel("Quantity")
+        ax.set_title("Current Inventory Levels")
+        for label in ax.get_xticklabels():
+            label.set_rotation(45)
+        fig.tight_layout()
+        canvas = FigureCanvasTkAgg(fig, master=chart_window)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
 if __name__ == "__main__":
     initialize_db()
